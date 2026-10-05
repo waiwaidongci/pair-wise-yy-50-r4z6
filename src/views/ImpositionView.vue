@@ -5,14 +5,18 @@ import SelectButton from 'primevue/selectbutton'
 import Slider from 'primevue/slider'
 import Tag from 'primevue/tag'
 import Message from 'primevue/message'
+import InputNumber from 'primevue/inputnumber'
 import ImpositionCanvas from '../components/ImpositionCanvas.vue'
 import { useImpositionStore } from '../stores/imposition'
+import { useReleaseStore } from '../stores/release'
 
 const store = useImpositionStore()
+const release = useReleaseStore()
 const sideOptions = [
   { label: '正面', value: 'front' },
   { label: '反面', value: 'back' },
 ]
+const showSheetEditor = ref(false)
 const selected = computed(() => store.positions.find((item) => item.id === store.selectedPosition))
 const activeValidations = computed(() => store.validations.filter((item) => !item.pageNo || item.pageNo === selected.value?.pageNo || sideContains(item.pageNo)))
 
@@ -34,10 +38,22 @@ function locate(pageNo?: number) {
   <section class="page">
     <div class="page-head">
       <div><p class="eyebrow">IMPOSITION / 拼版工作区</p><h1>Canvas 版位编排与预检</h1><p class="muted">拖拽页面位置，系统实时检查出血、安全区、重叠和骑马订方向。</p></div>
-      <div class="actions"><Button label="批量校验" icon="pi pi-check-circle" outlined /><Button label="保存拼版版本" icon="pi pi-save" @click="store.revision = `R${Number(store.revision.slice(1)) + 1}`" /></div>
+      <div class="actions">
+        <Button label="批量校验" icon="pi pi-check-circle" outlined />
+        <Button label="保存拼版版本" icon="pi pi-save" @click="store.revision = `R${Number(store.revision.slice(1)) + 1}`" />
+      </div>
     </div>
 
-    <Message v-if="store.validations.length" severity="warn" :closable="false" class="mb-3">
+    <Message v-if="release.batch?.status === '已失效'" severity="error" :closable="false" class="mb-3">
+      放行批次依据已变更：受影响的签核与未完成导出已失效，请重新签核。
+    </Message>
+    <Message v-else-if="release.batch?.status === '待复核'" severity="warn" :closable="false" class="mb-3">
+      放行批次有待复核项：拼版/出血/色差依据不齐，补齐后方可签核。
+    </Message>
+    <Message v-else-if="release.isReleased" severity="success" :closable="false" class="mb-3">
+      批次已放行并冻结：版位、出血与色差依据只读。如需修订请到生产总览处理。
+    </Message>
+    <Message v-else-if="store.validations.length" severity="warn" :closable="false" class="mb-3">
       当前版本有 {{ store.validations.filter((item) => item.severity === '错误').length }} 个阻断错误和 {{ store.validations.filter((item) => item.severity === '警告').length }} 个警告。
     </Message>
 
@@ -45,9 +61,24 @@ function locate(pageNo?: number) {
       <SelectButton v-model="store.side" :options="sideOptions" optionLabel="label" optionValue="value" />
       <span class="muted">缩放 {{ store.zoom }}%</span>
       <Slider v-model="store.zoom" :min="35" :max="100" :step="5" style="width:150px" />
-      <span class="paper-spec">720 × 1020mm · 出血 3mm · 安全区 5mm · {{ store.locked ? '基线只读' : '编辑中' }}</span>
-      <Button v-if="!store.locked" label="审批锁定" icon="pi pi-lock" size="small" @click="store.lockBaseline" />
-      <Button v-else label="解锁修订" icon="pi pi-lock-open" size="small" severity="warn" outlined @click="store.unlock" />
+      <span class="paper-spec">
+        {{ store.sheet.width }} × {{ store.sheet.height }}mm · 出血 {{ store.sheet.bleed }}mm · 安全区 {{ store.sheet.safe }}mm · {{ store.sheet.binding }}
+        <Button label="纸张规格" icon="pi pi-pencil" size="small" text @click="showSheetEditor = !showSheetEditor" />
+      </span>
+      <Tag :value="release.releaseStatus" :severity="release.isReleased ? 'success' : release.batch?.status === '已失效' ? 'danger' : 'info'" />
+      <Button label="放行批次" icon="pi pi-send" size="small" outlined @click="$router.push('/')" />
+    </div>
+
+    <div v-if="showSheetEditor" class="panel sheet-editor">
+      <div class="sheet-editor-head"><h3>纸张与出血规格</h3><span class="muted">改动会冻结为新依据，已签核环节随之失效重算</span></div>
+      <div class="sheet-grid">
+        <label>纸张宽 (mm)<InputNumber :modelValue="store.sheet.width" :min="300" :max="1200" @update:modelValue="store.updateSheet({ width: Number($event) })" /></label>
+        <label>纸张高 (mm)<InputNumber :modelValue="store.sheet.height" :min="300" :max="1200" @update:modelValue="store.updateSheet({ height: Number($event) })" /></label>
+        <label>出血 (mm)<InputNumber :modelValue="store.sheet.bleed" :min="0" :max="10" @update:modelValue="store.updateSheet({ bleed: Number($event) })" /></label>
+        <label>安全区 (mm)<InputNumber :modelValue="store.sheet.safe" :min="0" :max="20" @update:modelValue="store.updateSheet({ safe: Number($event) })" /></label>
+        <label>订口 (mm)<InputNumber :modelValue="store.sheet.gutter" :min="0" :max="20" @update:modelValue="store.updateSheet({ gutter: Number($event) })" /></label>
+        <label>装订<select :value="store.sheet.binding" @change="store.updateSheet({ binding: ($event.target as HTMLSelectElement).value })"><option>骑马订</option><option>胶订</option><option>锁线订</option></select></label>
+      </div>
     </div>
 
     <div class="imposition-grid">
@@ -71,6 +102,7 @@ function locate(pageNo?: number) {
             :zoom="store.zoom"
             :selected="store.selectedPosition"
             :validations="store.validations"
+            :sheet="store.sheet"
             @select="store.selectedPosition = $event"
             @update="store.updatePosition"
           />
@@ -108,7 +140,13 @@ function locate(pageNo?: number) {
 .actions { display: flex; gap: 8px; }
 .mb-3 { margin-bottom: 12px; }
 .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; padding: 12px; }
-.paper-spec { margin-left: auto; color: #5d7077; font-size: 11px; }
+.paper-spec { margin-left: auto; color: #5d7077; font-size: 11px; display: inline-flex; align-items: center; gap: 6px; }
+.sheet-editor { margin-bottom: 12px; padding: 12px 16px; }
+.sheet-editor-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.sheet-editor-head h3 { margin: 0; font-size: 14px; }
+.sheet-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+.sheet-grid label { display: grid; gap: 5px; color: #5f7076; font-size: 11px; font-weight: 700; }
+.sheet-grid select, .sheet-grid input { width: 100%; padding: 8px; border: 1px solid #cbd5d7; border-radius: 6px; font: inherit; font-weight: 400; }
 .imposition-grid { display: grid; grid-template-columns: 220px minmax(0,1fr) 340px; gap: 12px; align-items: start; }
 .pages-panel { max-height: 760px; overflow: auto; }
 .page-list { padding: 8px; }
@@ -137,5 +175,5 @@ function locate(pageNo?: number) {
 .validation-list strong { font-size: 11px; }
 .validation-list p { margin: 4px 0 0; color: #738087; font-size: 10px; line-height: 1.45; }
 @media (max-width: 1200px) { .imposition-grid { grid-template-columns: 200px minmax(0,1fr); } .right-panel { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; } }
-@media (max-width: 760px) { .imposition-grid { grid-template-columns: 1fr; } .right-panel { grid-template-columns: 1fr; } .pages-panel { max-height: 300px; } }
+@media (max-width: 760px) { .imposition-grid { grid-template-columns: 1fr; } .right-panel { grid-template-columns: 1fr; } .sheet-grid { grid-template-columns: 1fr; } .pages-panel { max-height: 300px; } }
 </style>

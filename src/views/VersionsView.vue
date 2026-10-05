@@ -5,8 +5,10 @@ import Checkbox from 'primevue/checkbox'
 import Tag from 'primevue/tag'
 import ImpositionCanvas from '../components/ImpositionCanvas.vue'
 import { useImpositionStore } from '../stores/imposition'
+import { useReleaseStore } from '../stores/release'
 
 const store = useImpositionStore()
+const release = useReleaseStore()
 const accepted = ref(['CH-02', 'CH-03'])
 const changes = [
   { id: 'CH-01', title: 'P7 右移 18mm 并增加 2mm 出血', before: 'x 34 / bleed 1mm', after: 'x 52 / bleed 3mm', risk: '低' },
@@ -14,23 +16,40 @@ const changes = [
   { id: 'CH-03', title: 'P4 与 P5 跨页间距缩短 4mm', before: 'gutter 10mm', after: 'gutter 6mm', risk: '中' },
   { id: 'CH-04', title: 'P2 版权页采用低出血文件', before: 'bleed 2mm', after: 'bleed 1mm', risk: '高' },
 ]
+
+function acceptAndRelease() {
+  if (release.batch) {
+    release.sign('放行')
+  } else {
+    release.initiate()
+  }
+}
 </script>
 
 <template>
   <section class="page">
     <div class="page-head">
       <div><p class="eyebrow">VERSION COMPARE / 版本对比</p><h1>拼版版本并排审阅</h1><p class="muted">基线 R5 与候选 R6 对比，变更可逐项接受；锁定后生成只读生产版本。</p></div>
-      <div class="actions"><Button label="导出对比报告" icon="pi pi-file-export" outlined /><Button :label="store.locked ? '已锁定' : '接受变更并锁定'" icon="pi pi-lock" :disabled="store.locked || accepted.length === 0" @click="store.lockBaseline" /></div>
+      <div class="actions">
+        <Button label="导出对比报告" icon="pi pi-file-export" outlined />
+        <Button
+          :label="release.isReleased ? '已放行' : release.batch ? '签核放行' : '接受变更并发起批次'"
+          icon="pi pi-send"
+          :disabled="accepted.length === 0 || release.isReleased"
+          :loading="release.loading"
+          @click="acceptAndRelease"
+        />
+      </div>
     </div>
 
     <div class="compare-grid">
       <section class="panel">
         <div class="panel-head"><h3>基线 R5</h3><Tag value="只读" /></div>
-        <div class="canvas-box"><ImpositionCanvas :positions="store.positions" side="front" :zoom="38" :selected="null" :validations="store.validations" @update="() => {}" @select="() => {}" /></div>
+        <div class="canvas-box"><ImpositionCanvas :positions="store.positions" side="front" :zoom="38" :selected="null" :validations="store.validations" :sheet="store.sheet" @update="() => {}" @select="() => {}" /></div>
       </section>
       <section class="panel candidate">
-        <div class="panel-head"><h3>候选 R6</h3><Tag value="4 项变更" severity="warn" /></div>
-        <div class="canvas-box"><ImpositionCanvas :positions="store.positions" side="front" :zoom="38" :selected="null" :validations="store.validations" @update="() => {}" @select="() => {}" /></div>
+        <div class="panel-head"><h3>候选 R6</h3><Tag :value="release.releaseStatus" :severity="release.isReleased ? 'success' : 'warn'" /></div>
+        <div class="canvas-box"><ImpositionCanvas :positions="store.positions" side="front" :zoom="38" :selected="null" :validations="store.validations" :sheet="store.sheet" @update="() => {}" @select="() => {}" /></div>
       </section>
     </div>
 

@@ -5,9 +5,19 @@ export type Page = { pageNo: number; name: string; width: number; height: number
 export type Position = { id: string; pageNo: number; x: number; y: number; rotation: number; front: boolean }
 export type Validation = { id: string; severity: '错误' | '警告'; pageNo?: number; title: string; detail: string }
 export type Proof = { id: string; round: number; date: string; sample: string; deltaE: number; feedback: string; correction: string; owner: string; decision: '待决定' | '通过' | '退回' }
-export type ExportTask = { id: string; name: string; progress: number; status: '排队中' | '生成中' | '已完成' | '已中断'; updatedAt: string; resumable: boolean }
+export type ExportTask = {
+  id: string
+  name: string
+  progress: number
+  status: '排队中' | '生成中' | '已完成' | '已中断' | '已失效'
+  updatedAt: string
+  resumable: boolean
+  batchId?: string | null
+  basisHash?: string | null
+}
+export type SheetSpec = { width: number; height: number; bleed: number; safe: number; gutter: number; binding: string; grain: string }
 
-export const sheetSpec = {
+export const defaultSheet: SheetSpec = {
   width: 720,
   height: 1020,
   bleed: 3,
@@ -56,6 +66,7 @@ export const useImpositionStore = defineStore('imposition', () => {
   const positions = ref<Position[]>(restored?.positions ?? structuredClone(seedPositions))
   const proofs = ref<Proof[]>(restored?.proofs ?? structuredClone(seedProofs))
   const tasks = ref<ExportTask[]>(restored?.tasks ?? structuredClone(seedTasks))
+  const sheet = ref<SheetSpec>(restored?.sheet ?? structuredClone(defaultSheet))
   const side = ref<'front' | 'back'>('front')
   const zoom = ref(72)
   const revision = ref(restored?.revision ?? 'R6')
@@ -68,7 +79,7 @@ export const useImpositionStore = defineStore('imposition', () => {
     const placedPages = positions.value.map((position) => position.pageNo)
     pages.value.forEach((page) => {
       if (!placedPages.includes(page.pageNo)) issues.push({ id: `missing-${page.pageNo}`, severity: '错误', pageNo: page.pageNo, title: `P${page.pageNo} 尚未拼版`, detail: `${page.name} 未出现在正反版位中。` })
-      if (page.bleed < sheetSpec.bleed) issues.push({ id: `bleed-${page.pageNo}`, severity: '错误', pageNo: page.pageNo, title: `P${page.pageNo} 出血不足`, detail: `页面出血 ${page.bleed}mm，低于印刷要求 ${sheetSpec.bleed}mm。` })
+      if (page.bleed < sheet.value.bleed) issues.push({ id: `bleed-${page.pageNo}`, severity: '错误', pageNo: page.pageNo, title: `P${page.pageNo} 出血不足`, detail: `页面出血 ${page.bleed}mm，低于印刷要求 ${sheet.value.bleed}mm。` })
     })
     for (let index = 0; index < positions.value.length; index += 1) {
       for (let next = index + 1; next < positions.value.length; next += 1) {
@@ -84,8 +95,8 @@ export const useImpositionStore = defineStore('imposition', () => {
     return issues
   })
 
-  watch([pages, positions, proofs, tasks, revision, locked], () => {
-    localStorage.setItem('print-imposition-v1', JSON.stringify({ pages: pages.value, positions: positions.value, proofs: proofs.value, tasks: tasks.value, revision: revision.value, locked: locked.value }))
+  watch([pages, positions, proofs, tasks, sheet, revision, locked], () => {
+    localStorage.setItem('print-imposition-v1', JSON.stringify({ pages: pages.value, positions: positions.value, proofs: proofs.value, tasks: tasks.value, sheet: sheet.value, revision: revision.value, locked: locked.value }))
   }, { deep: true })
 
   function updatePosition(id: string, patch: Partial<Position>) {
@@ -108,6 +119,11 @@ export const useImpositionStore = defineStore('imposition', () => {
     proofs.value.push({ id: `PRF-${String(proofs.value.length + 1).padStart(2, '0')}`, round: proofs.value.length + 1, date: new Date().toISOString().slice(0, 10), sample: `数字样张 v${proofs.value.length + 1}`, deltaE: 0, feedback: '', correction: '', owner: '当前用户', decision: '待决定' })
   }
 
+  function updateSheet(patch: Partial<SheetSpec>) {
+    if (locked.value) return
+    Object.assign(sheet.value, patch)
+  }
+
   function lockBaseline() {
     locked.value = true
     revision.value = `R${Number(revision.value.slice(1)) + 1}`
@@ -126,5 +142,26 @@ export const useImpositionStore = defineStore('imposition', () => {
     }
   }
 
-  return { pages, positions, proofs, tasks, side, zoom, revision, locked, selectedPosition, selectedProof, validations, updatePosition, addPosition, updateProof, createProof, lockBaseline, unlock, resumeTask }
+  /** 批次发起时，把未完成导出任务关联到批次并记录当前依据哈希。 */
+  function linkTasksToBatch(batchId: string, basisHash: string) {
+    for (const task of tasks.value) {
+      if (task.status !== '已完成') {
+        task.batchId = batchId
+        task.basisHash = basisHash
+      }
+    }
+  }
+
+  /** 依据变更后，未完成导出立即失效重算；已完成的保留。 */
+  function invalidateUnfinishedTasks() {
+    for (const task of tasks.value) {
+      if (task.status !== '已完成') {
+        task.status = '已失效'
+        task.progress = 0
+        task.updatedAt = '依据已变更'
+      }
+    }
+  }
+
+  return { pages, positions, proofs, tasks, sheet, side, zoom, revision, locked, selectedPosition, selectedProof, validations, updatePosition, addPosition, updateProof, createProof, updateSheet, lockBaseline, unlock, resumeTask, linkTasksToBatch, invalidateUnfinishedTasks }
 })

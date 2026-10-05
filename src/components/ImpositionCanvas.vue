@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
-import type { Position, Validation } from '../stores/imposition'
+import type { Position, Validation, SheetSpec } from '../stores/imposition'
 
 const props = defineProps<{
   positions: Position[]
@@ -8,6 +8,7 @@ const props = defineProps<{
   zoom: number
   selected: string | null
   validations: Validation[]
+  sheet: SheetSpec
 }>()
 
 const emit = defineEmits<{
@@ -49,7 +50,7 @@ function draw() {
   ctx.fillText(`${props.side === 'front' ? '正面' : '反面'}拼版版式`, 48, 28)
   ctx.font = '11px sans-serif'
   ctx.fillStyle = '#76848a'
-  ctx.fillText(`纸张 720 × 1020 mm · 出血 3mm · 安全区 5mm · 骑马订`, 180, 28)
+  ctx.fillText(`纸张 ${props.sheet.width} × ${props.sheet.height} mm · 出血 ${props.sheet.bleed}mm · 安全区 ${props.sheet.safe}mm · ${props.sheet.binding}`, 180, 28)
 
   props.positions.filter((item) => item.front === (props.side === 'front')).forEach((position) => {
     const x = position.x
@@ -116,7 +117,7 @@ function pointerMove(event: PointerEvent) {
 }
 
 onMounted(draw)
-watch(() => [props.positions, props.side, props.selected, props.validations], draw, { deep: true })
+watch(() => [props.positions, props.side, props.selected, props.validations, props.sheet], draw, { deep: true })
 </script>
 
 <template>

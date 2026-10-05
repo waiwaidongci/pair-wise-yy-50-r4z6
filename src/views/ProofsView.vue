@@ -6,13 +6,23 @@ import InputNumber from 'primevue/inputnumber'
 import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
+import Message from 'primevue/message'
 import { useImpositionStore, type Proof } from '../stores/imposition'
+import { useReleaseStore } from '../stores/release'
 
 const store = useImpositionStore()
+const release = useReleaseStore()
 const active = computed(() => store.proofs.find((proof) => proof.id === store.selectedProof) ?? store.proofs[0])
 const draft = ref<Proof>({ ...active.value })
 watch(active, (value) => (draft.value = { ...value }), { immediate: true })
 const sampleFile = ref('当前使用数字样张 v2_09025.tif')
+
+const colorSignoff = computed(() => release.batch?.signoffs.find((s) => s.step === '色彩'))
+
+/** 依据完整性：样张、ΔE、决定三者缺一即归「待复核」。 */
+function basisComplete(proof: Proof) {
+  return proof.sample.trim().length > 0 && proof.deltaE > 0 && proof.decision !== '待决定'
+}
 
 function save() {
   store.updateProof(draft.value.id, draft.value)
@@ -22,9 +32,16 @@ function save() {
 <template>
   <section class="page">
     <div class="page-head">
-      <div><p class="eyebrow">PROOFING / 打样审批</p><h1>打样轮次与色彩反馈</h1><p class="muted">每轮记录样张、色差、修正说明与负责人决定，修改后生成新拼版版本。</p></div>
+      <div><p class="eyebrow">PROOFING / 打样审批</p><h1>打样轮次与色彩反馈</h1><p class="muted">每轮记录样张、色差、修正说明与负责人决定；缺样张/ΔE/决定的草稿归待复核，改动即触发放行批次失效重算。</p></div>
       <Button label="新建打样轮次" icon="pi pi-plus" @click="store.createProof" />
     </div>
+
+    <Message v-if="colorSignoff" :severity="colorSignoff.status === '已签核' ? 'success' : colorSignoff.status === '已失效' ? 'error' : colorSignoff.status === '待复核' ? 'warn' : 'info'" :closable="false" class="mb-3">
+      色彩签核状态：<strong>{{ colorSignoff.status }}</strong>
+      <template v-if="colorSignoff.status === '已签核'"> · {{ colorSignoff.signer }} 已于 {{ new Date(colorSignoff.signedAt!).toLocaleString('zh-CN') }} 签核</template>
+      <template v-else-if="colorSignoff.status === '待复核'"> · 需至少一轮「通过」结论且 ΔE ≤ 2.0、样张齐全</template>
+      <template v-else-if="colorSignoff.status === '已失效'"> · 打样结论已变更，需重新签核</template>
+    </Message>
 
     <div class="proof-layout">
       <section class="panel">
@@ -33,6 +50,7 @@ function save() {
           <button v-for="proof in store.proofs.slice().reverse()" :key="proof.id" :class="{ active: proof.id === store.selectedProof }" @click="store.selectedProof = proof.id">
             <div><strong>第 {{ proof.round }} 轮 · {{ proof.sample }}</strong><small>{{ proof.date }} · {{ proof.owner }}</small></div>
             <span>ΔE {{ proof.deltaE }}</span>
+            <Tag :value="basisComplete(proof) ? '依据完整' : '待复核'" :severity="basisComplete(proof) ? 'success' : 'warn'" />
             <Tag :value="proof.decision" :severity="proof.decision === '通过' ? 'success' : proof.decision === '退回' ? 'danger' : 'warn'" />
           </button>
         </div>
@@ -79,7 +97,7 @@ function save() {
 <style scoped>
 .proof-layout { display: grid; grid-template-columns: 350px minmax(0,1fr) 300px; gap: 14px; align-items: start; }
 .proof-list { padding: 8px; }
-.proof-list button { display: grid; width: 100%; grid-template-columns: 1fr 58px auto; gap: 8px; align-items: center; padding: 11px; border: 0; border-radius: 7px; text-align: left; background: transparent; cursor: pointer; }
+.proof-list button { display: grid; width: 100%; grid-template-columns: 1fr 50px auto auto; gap: 8px; align-items: center; padding: 11px; border: 0; border-radius: 7px; text-align: left; background: transparent; cursor: pointer; }
 .proof-list button.active { background: #edf5f4; box-shadow: inset 3px 0 #337b79; }
 .proof-list strong, .proof-list small { display: block; }
 .proof-list strong { font-size: 12px; }

@@ -4,9 +4,11 @@ import { useRoute } from 'vue-router'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import { useImpositionStore } from './stores/imposition'
+import { useReleaseStore } from './stores/release'
 
 const route = useRoute()
 const store = useImpositionStore()
+const release = useReleaseStore()
 const mobileOpen = ref(false)
 const title = computed(() => String(route.meta.title ?? '拼版工作台'))
 const nav = [
@@ -16,19 +18,21 @@ const nav = [
   { to: '/versions', label: '版本对比', icon: 'pi pi-copy' },
   { to: '/exports', label: '导出任务', icon: 'pi pi-download' },
 ]
+const statusSeverity = computed(() => (release.isReleased ? 'success' : release.batch?.status === '已失效' ? 'danger' : 'warn'))
+const statusText = computed(() => release.batch?.status ?? '未发起批次')
 </script>
 
 <template>
   <div class="shell">
-    <header class="mobile-bar"><Button icon="pi pi-bars" text severity="contrast" @click="mobileOpen = !mobileOpen" /><strong>{{ title }}</strong><Tag :value="store.locked ? '已锁定' : '编辑中'" :severity="store.locked ? 'success' : 'warn'" /></header>
+    <header class="mobile-bar"><Button icon="pi pi-bars" text severity="contrast" @click="mobileOpen = !mobileOpen" /><strong>{{ title }}</strong><Tag :value="statusText" :severity="statusSeverity" /></header>
     <aside :class="{ open: mobileOpen }">
       <div class="brand"><div class="brand-mark">拼版</div><div><strong>印刷生产中心</strong><small>《潮汐来信》节目册</small></div></div>
       <nav>
         <RouterLink v-for="item in nav" :key="item.to" :to="item.to" @click="mobileOpen = false"><i :class="item.icon" />{{ item.label }}</RouterLink>
       </nav>
       <div class="sidebar-status">
-        <div><span :class="{ warn: !store.locked }" />{{ store.locked ? '基线已审批锁定' : `${store.validations.length} 项预检提示` }}</div>
-        <small>版本 {{ store.revision }} · 自动保存草稿</small>
+        <div><span :class="{ warn: !release.isReleased, invalid: release.batch?.status === '已失效' }" />放行状态：{{ statusText }}</div>
+        <small>版本 {{ store.revision }} · {{ release.signedCount }}/3 环节已签核</small>
       </div>
     </aside>
     <main><RouterView /></main>
@@ -50,6 +54,7 @@ nav a.router-link-active { color: white; background: #3a555d; box-shadow: inset 
 .sidebar-status div { font-size: 11px; font-weight: 700; }
 .sidebar-status span { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: #58b38a; }
 .sidebar-status span.warn { background: #d9a04d; }
+.sidebar-status span.invalid { background: #d9534f; }
 .sidebar-status small { display: block; margin-top: 6px; color: #96a9ae; font-size: 9px; }
 main { min-width: 0; margin-left: 244px; }
 .mobile-bar { display: none; }
