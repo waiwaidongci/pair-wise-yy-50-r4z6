@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 62050",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 62050"
+    "preview": "vite preview --host 0.0.0.0 --port 62050",
+    "typecheck": "vue-tsc --noEmit",
+    "test:smoke": "esbuild test/release.smoke.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/release-smoke.mjs --log-level=warning && node node_modules/.cache/release-smoke.mjs"
   },
   "dependencies": {
     "@primeuix/themes": "^1.2.5",
